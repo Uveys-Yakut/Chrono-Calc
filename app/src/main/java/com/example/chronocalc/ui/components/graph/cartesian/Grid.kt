@@ -3,22 +3,22 @@ package com.example.chronocalc.ui.components.graph.cartesian
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.DrawScope
 
-fun DrawScope.cartesianGrid(intervalGrid: Float = 50f) {
+fun DrawScope.cartesianGrid(intervalGrid: Float = 50f, dragOffset: Offset) {
     val width = size.width
     val height = size.height
-
     for (type in GridLineType.entries) {
-        gridLinesCreator(width, height, intervalGrid, type)
+        gridLinesCreator(width, height, intervalGrid, type, dragOffset)
     }
 }
 private fun DrawScope.gridLinesCreator(
     width: Float,
     height: Float,
     intervalGrid: Float,
-    type: GridLineType
+    type: GridLineType,
+    dragOffset: Offset
 ) {
-    val centerX = width/2
-    val centerY = height/2
+    val centerX = width/2 + dragOffset.x
+    val centerY = height/2 + dragOffset.y
     val limit = if (type == GridLineType.VERTICAL) width else height
     val pos = if (type == GridLineType.VERTICAL) centerX else centerY
 

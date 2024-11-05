@@ -18,31 +18,38 @@ import kotlin.math.sin
 private enum class AxesNames { X, Y }
 private enum class AxesDirection { POSITIVE, NEGATIVE }
 
-private data class AxesItemsData(
+private data class AxesLabelItemsData(
     val centerPos: Float,
     val axesName: AxesNames,
-    val fixedAxesPos: Float,
+    val fixedAxesLabelPos: Float,
     val itemLimitWithSize: Float
 )
 
-fun DrawScope.cartesianAxes(intervalGrid: Float) {
+fun DrawScope.cartesianAxes(intervalGrid: Float, dragOffset: Offset) {
     val width = size.width
     val height = size.height
     val arrowHeadLength = 20f
-
-    val center = Offset(width / 2, height / 2)
-
+    val center = Offset(
+        x = width / 2 + dragOffset.x,
+        y= height / 2 + dragOffset.y
+    )
     val axesOffsets = listOf(
         Pair(Offset(0f, center.y), Offset(width, center.y)), // X Axis
         Pair(Offset(center.x, height), Offset(center.x, 0f)) // Y Axis
     )
 
     for ((start, end) in axesOffsets) {
-        axisLineCreator(start, end, arrowHeadLength, intervalGrid)
+        axisLineCreator(start, end, arrowHeadLength, intervalGrid, dragOffset)
     }
 }
 
-private fun DrawScope.axisLineCreator(startPos: Offset, endPos: Offset, arrowHeadLength: Float, intervalGrid: Float) {
+private fun DrawScope.axisLineCreator(
+    startPos: Offset,
+    endPos: Offset,
+    arrowHeadLength: Float,
+    intervalGrid: Float,
+    dragOffset: Offset
+) {
     drawLine(
         start = startPos,
         end = endPos,
@@ -56,7 +63,7 @@ private fun DrawScope.axisLineCreator(startPos: Offset, endPos: Offset, arrowHea
         CartesianDefinitions.AXIS_STROKE_WIDTH,
         arrowHeadLength
     )
-    axesTickLabels(intervalGrid)
+    axesTickLabels(intervalGrid, dragOffset)
 }
 private fun DrawScope.angelArrowHead(
     start: Offset,
@@ -81,43 +88,96 @@ private fun calculateAngelArrowPoint(end: Offset, length: Float, angle: Double):
     )
 }
 
-private fun DrawScope.axesTickLabels(intervalGrid: Float) {
+private fun DrawScope.axesTickLabels(intervalGrid: Float, dragOffset: Offset) {
     val width = size.width
     val height = size.height
-    val centerX = width/2
-    val centerY = height/2
+    val centerX = width/2  + dragOffset.x
+    val centerY = height/2 + dragOffset.y
     val intervalTickLabel = intervalGrid * 5f
     val axesTickLabelData = listOf(
-        AxesItemsData(centerX, AxesNames.X, centerY, width),
-        AxesItemsData(centerY, AxesNames.Y, centerX, height)
+        AxesLabelItemsData(centerX, AxesNames.X, centerY, width),
+        AxesLabelItemsData(centerY, AxesNames.Y, centerX, height)
     )
     for (itemAxesLabelData in axesTickLabelData) {
-        for (direction in AxesDirection.entries) {
-            var pos = itemAxesLabelData.centerPos
-            var counter = 0f
-            while ((direction == AxesDirection.POSITIVE && pos <= itemAxesLabelData.itemLimitWithSize) ||
-                (direction == AxesDirection.NEGATIVE && pos >= 0f)) {
-                if (counter != 0f) {
-                    drawTickLabels(
-                        text = if (direction == AxesDirection.POSITIVE) "${counter.toInt()}" else "-${counter.toInt()}",
-                        pos = if (itemAxesLabelData.axesName == AxesNames.X) Offset(pos, itemAxesLabelData.fixedAxesPos) else Offset(itemAxesLabelData.fixedAxesPos, pos),
-                        color = Gray800,
-                        textSize = 12.dp,
-                        strokeColor = White,
-                        strokeWidth = 8f,
-                        marginTop = if (itemAxesLabelData.axesName == AxesNames.X) 35f else 0f,
-                        marginRight = if (itemAxesLabelData.axesName == AxesNames.Y) 35f else 0f,
-                        marginBottom = 2f
-                    )
-                }
-                pos += if (direction == AxesDirection.POSITIVE) intervalTickLabel else -intervalTickLabel
-                counter++
+        axesTickLabelsCreator(itemAxesLabelData, intervalTickLabel, intervalGrid)
+    }
+    drawZeroTickLabel(Offset(centerX, centerY))
+}
+private fun DrawScope.axesTickLabelsCreator(itemAxesLabelData: AxesLabelItemsData, intervalTickLabel: Float, intervalGrid: Float) {
+    var breaker = 0f
+    for (direction in AxesDirection.entries) {
+        var pos = itemAxesLabelData.centerPos
+        var counter = 0f
+
+        val isXAxis = itemAxesLabelData.axesName == AxesNames.X
+
+        val fixedAxesLabelPos = when {
+            (isXAxis && itemAxesLabelData.fixedAxesLabelPos < 0f) || (!isXAxis && itemAxesLabelData.fixedAxesLabelPos < 35f) ->
+                if (isXAxis) 0f else intervalGrid
+            (isXAxis && itemAxesLabelData.fixedAxesLabelPos > size.height) || (!isXAxis && itemAxesLabelData.fixedAxesLabelPos > size.width) ->
+                if (isXAxis) size.height - intervalGrid else size.width
+            else -> itemAxesLabelData.fixedAxesLabelPos
+        }
+
+        // This logic addresses the coordinate system difference between a Cartesian plane and typical canvas systems.
+        // In a Cartesian coordinate system, the Y-axis values increase upward. On canvas systems (e.g., Android or HTML Canvas),
+        // however, the Y-axis increases downward, with the origin (0,0) at the top-left. To align the behavior of the Cartesian
+        // system on a canvas, we adjust movement on the Y-axis by reversing addition and subtraction. Specifically, moving "up"
+        // requires subtracting from the Y position, while moving "down" requires adding. This conditional setup dynamically
+        // applies the correct direction adjustments for X and Y-axis values.
+        val limitCheck: (Float) -> Boolean = {
+            when {
+                isXAxis && direction == AxesDirection.POSITIVE -> it <= itemAxesLabelData.itemLimitWithSize
+                isXAxis && direction == AxesDirection.NEGATIVE -> it >= 0f
+                !isXAxis && direction == AxesDirection.POSITIVE -> it >= 0f
+                else -> it <= itemAxesLabelData.itemLimitWithSize
             }
+        }
+
+        val updatePos: (Float) -> Float = {
+            when {
+                isXAxis && direction == AxesDirection.POSITIVE -> it + intervalTickLabel
+                isXAxis && direction == AxesDirection.NEGATIVE -> it - intervalTickLabel
+                !isXAxis && direction == AxesDirection.POSITIVE -> it - intervalTickLabel
+                else -> it + intervalTickLabel
+            }
+        }
+
+        while (limitCheck(pos)) {
+            if (counter != 0f) {
+                val labelText = if (direction == AxesDirection.POSITIVE) "${counter.toInt()}" else "-${counter.toInt()}"
+                val labelPos = if (isXAxis) Offset(pos, fixedAxesLabelPos) else Offset(fixedAxesLabelPos, pos)
+
+                drawTickLabel(
+                    text = labelText,
+                    pos = labelPos,
+                    color = Gray800,
+                    textSize = 12.dp,
+                    strokeColor = White,
+                    strokeWidth = 8f,
+                    marginTop = if (isXAxis) 35f else 0f,
+                    marginRight = if (!isXAxis) 35f else 0f,
+                    marginBottom = 2f
+                )
+            }
+            pos = updatePos(pos)
+            counter++
         }
     }
 }
+private fun DrawScope.drawZeroTickLabel(centerPos: Offset) {
+    drawTickLabel(
+        text = "0",
+        pos = Offset(centerPos.x - 35f, centerPos.y + 35f),
+        color = Gray800,
+        textSize = 12.dp,
+        strokeColor = White,
+        strokeWidth = 8f,
+        marginBottom = 2f
+    )
+}
 
-private fun DrawScope.drawTickLabels(
+private fun DrawScope.drawTickLabel(
     text: String,
     pos: Offset,
     color: Color,
